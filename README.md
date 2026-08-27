@@ -44,11 +44,23 @@ Leave-one-modality-out marginal gains:
 
 ## Results — Cohort 2: TCGA (molecular / survival)
 
-Harrell's C-index. Same value-analysis code path as Cohort 1, parametrised on metric — not a separate implementation. See [honest limitation](#honest-limitation-stated-up-front): this is a **different cohort** from PTB-XL, not the same patients with an added modality.
+Harrell's C-index, TCGA-COAD, n=455 patients with overall-survival follow-up (event rate 22.4%). Same `fusion/value.py` code path as Cohort 1, parametrised on metric (`c_index_metric` instead of `macro_auroc_metric`) — not a separate implementation. 5-fold `KFold` out-of-fold cross-fitting (fixed seed 42; TCGA has no published `strat_fold`-style split to reuse, unlike PTB-XL, so a plain KFold is the honest choice here — see `modalities/molecular.py::compute_oof_scores`). Bootstrap 95% CIs are paired, 1,000 resamples. See [honest limitation](#honest-limitation-stated-up-front): this is a **different cohort** from PTB-XL, not the same patients with an added modality.
+
+Reproduce with `make molecular` (requires `data/tcga/molecular_scores.csv`, produced once by `Rscript scripts/export_tcga_molecular.R` from the existing thesis R pipeline — see that script's header).
 
 | Modality set | C-index | Δ vs. previous | 95% CI on Δ | Acquisition cost (£/patient) | ΔC-index per £100 |
 |---|---|---|---|---|---|
-| _(not yet run)_ | | | | | |
+| clinical | 0.702 | 0.702 | — | 1 | 70.19 |
+| clinical+molecular | 0.711 | +0.0087 | [-0.0004, 0.0185] | 300 | 0.0029 |
+
+Leave-one-modality-out marginal gains (both modalities included = C-index 0.711):
+
+| Modality removed | C-index (full − modality) | Δ | 95% CI on Δ |
+|---|---|---|---|
+| clinical | 0.558 | -0.153 | [-0.232, -0.077] |
+| molecular | 0.702 | -0.0087 | [-0.0185, 0.0004] |
+
+**Reading this honestly:** clinical covariates (age, sex, stage) carry almost all of the discrimination in this cohort — dropping clinical costs 0.15 of C-index, a large and clearly significant loss. Adding the £300/patient ssGSEA molecular panel on top of clinical covariates buys a small, borderline gain (its 95% CI on Δ includes numbers at/near zero), i.e. **not yet a clearly worthwhile marginal purchase at this sample size** — the kind of answer this table exists to surface rather than obscure. This says nothing about whether molecular data adds value in general; it reflects this specific signature panel, this specific cohort size, and stage/age already being strong prognostic covariates in colorectal cancer.
 
 ## Acquisition cost sources
 
