@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import shutil
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -22,6 +24,7 @@ from modality_value.config import (
     PTBXL_DATABASE_CSV,
     PTBXL_DIR,
     PTBXL_SCP_STATEMENTS_CSV,
+    PTBXL_SIGNALS_MEMMAP,
     SIGNAL_LENGTH,
     SUPERCLASSES,
     TEST_FOLD,
@@ -82,6 +85,53 @@ def load_raw_signal(record_path_100: str) -> np.ndarray:
     signal = signal.T.astype(np.float32)  # (leads, time)
     assert signal.shape == (NUM_LEADS, SIGNAL_LENGTH), signal.shape
     return signal
+
+
+def build_or_load_signal_cache(
+    df: pd.DataFrame, path: Path = PTBXL_SIGNALS_MEMMAP, min_free_ratio: float = 1.5
+) -> np.memmap:
+    """Build (once) or load a (n, NUM_LEADS, SIGNAL_LENGTH) float32 memmap of every
+    record's 100Hz signal, in the row order of `df` (row i <-> df.iloc[i], i.e.
+    NOT df.index -- callers needing a specific ecg_id's row must translate via
+    `df.index.get_indexer([ecg_id])` or equivalent positional lookup, same as
+    labels_matrix(df) which is aligned to df's row order).
+
+    Avoids re-reading WFDB per-batch during training -- the whole point of this
+    cache is that after the one-time build, every epoch reads only this memmap.
+
+    Refuses to build if there isn't at least `min_free_ratio`x the required
+    bytes free on disk (a failed/partial write here would corrupt the cache).
+    """
+    path = Path(path)
+    ids_path = path.with_name(path.stem + "_ids.npy")
+    n = len(df)
+    shape = (n, NUM_LEADS, SIGNAL_LENGTH)
+
+    if path.exists() and ids_path.exists():
+        cached_ids = np.load(ids_path)
+        if np.array_equal(cached_ids, df.index.to_numpy()) and path.stat().st_size == n * NUM_LEADS * SIGNAL_LENGTH * 4:
+            return np.memmap(path, dtype=np.float32, mode="r", shape=shape)
+        print(f"Signal cache at {path} is stale for the given df; rebuilding.")
+
+    required_bytes = n * NUM_LEADS * SIGNAL_LENGTH * 4
+    path.parent.mkdir(parents=True, exist_ok=True)
+    free_bytes = shutil.disk_usage(path.parent).free
+    if free_bytes < required_bytes * min_free_ratio:
+        raise RuntimeError(
+            f"Refusing to build signal cache at {path}: need ~{required_bytes / 1e9:.2f}GB "
+            f"(x{min_free_ratio} safety margin -> {required_bytes * min_free_ratio / 1e9:.2f}GB), "
+            f"only {free_bytes / 1e9:.2f}GB free on disk."
+        )
+
+    mm = np.memmap(path, dtype=np.float32, mode="w+", shape=shape)
+    for i, (_, row) in enumerate(df.iterrows()):
+        mm[i] = load_raw_signal(row["filename_lr"])
+        if i % 2000 == 0:
+            print(f"  signal cache: {i}/{n} records...")
+    mm.flush()
+    np.save(ids_path, df.index.to_numpy())
+    print(f"Signal cache built at {path} ({required_bytes / 1e9:.2f}GB, {n} records).")
+    return np.memmap(path, dtype=np.float32, mode="r", shape=shape)
 
 
 def _summary() -> None:

@@ -1,0 +1,18 @@
+{
+  "tabular": {
+    "features": [
+      "age",
+      "sex",
+      "height",
+      "height_missing",
+      "weight",
+      "weight_missing"
+    ],
+    "fold10_test_macro_auroc": 0.6760370544695853,
+    "fold9_val_macro_auroc": 0.671402073865003,
+    "model": "5x LGBMClassifier one-vs-rest",
+    "n_test": 2198,
+    "n_train": 17418,
+    "n_val": 2183
+  }
+}

@@ -5,6 +5,7 @@ VENV := .venv/bin
 data:
 	bash scripts/download_ptbxl.sh
 	$(VENV)/python -m modality_value.io.ptbxl --summary
+	$(VENV)/python scripts/fig_data_overview.py
 
 tabular:
 	$(VENV)/python -m modality_value.modalities.tabular
