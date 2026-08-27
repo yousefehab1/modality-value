@@ -19,19 +19,17 @@ if [ ! -d "$DATA_DIR/ptbxl" ]; then
   else
     echo "Zip already fully downloaded, skipping curl."
   fi
-  echo "Unzipping..."
-  unzip -q "$ZIP_PATH" -d "$DATA_DIR"
-  EXTRACTED_DIR=$(find "$DATA_DIR" -maxdepth 1 -type d -iname "ptb-xl-*" | head -n 1)
-  mv "$EXTRACTED_DIR" "$DATA_DIR/ptbxl"
+  echo "Unzipping (records100/ only -- skipping records500/ to save disk)..."
+  TOP_DIR=$(unzip -Z1 "$ZIP_PATH" | head -n 1 | cut -d/ -f1) || true
+  unzip -q -o "$ZIP_PATH" -d "$DATA_DIR" \
+    "$TOP_DIR/records100/*" \
+    "$TOP_DIR/*.csv" \
+    "$TOP_DIR/LICENSE.txt" \
+    "$TOP_DIR/SHA256SUMS.txt"
+  mv "$DATA_DIR/$TOP_DIR" "$DATA_DIR/ptbxl"
   rm "$ZIP_PATH"
 else
   echo "data/ptbxl already exists, skipping download."
-fi
-
-# Keep the 100Hz set (tractable on 16GB), drop the 500Hz set.
-if [ -d "$DATA_DIR/ptbxl/records500" ]; then
-  echo "Deleting records500/ (100Hz set only)..."
-  rm -rf "$DATA_DIR/ptbxl/records500"
 fi
 
 echo "Done. records100/ present: $([ -d "$DATA_DIR/ptbxl/records100" ] && echo yes || echo no)"
