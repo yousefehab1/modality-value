@@ -1,0 +1,12 @@
+data/
+results/*.pkl
+results/*.pt
+results/*.npy
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+*.egg-info/
+.env
+notebooks/.ipynb_checkpoints/

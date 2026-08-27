@@ -1,0 +1,35 @@
+[project]
+name = "modality-value"
+version = "0.1.0"
+description = "Quantifying discrimination gain per unit of acquisition cost across clinical data modalities"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch>=2.4",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "wfdb",
+    "lightgbm",
+    "lifelines",
+    "matplotlib",
+    "fastapi",
+    "uvicorn[standard]",
+    "gradio",
+    "pydantic",
+    "transformers",
+    "peft",
+    "datasets",
+    "accelerate",
+    "pytest",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/modality_value"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
