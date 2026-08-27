@@ -33,3 +33,10 @@ packages = ["src/modality_value"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The venv's editable install (`_editable_impl_modality_value.pth`) points at
+# whichever checkout ran `uv pip install -e .` last -- in a multi-worktree
+# setup that is NOT necessarily this worktree's src/. Prepending "src" here
+# (pytest >=7 core feature, no plugin needed) makes `pytest` resolve
+# modality_value against *this* worktree's code regardless of which worktree
+# owns the shared venv's editable-install pointer.
+pythonpath = ["src"]

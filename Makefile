@@ -13,7 +13,7 @@ waveform:
 	$(VENV)/python -m modality_value.modalities.waveform
 
 text:
-	$(VENV)/python -m modality_value.modalities.text
+	PYTHONPATH=src $(VENV)/python -m modality_value.modalities.text
 
 fusion:
 	$(VENV)/python -m modality_value.fusion.value
