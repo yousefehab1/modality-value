@@ -14,5 +14,35 @@
     "n_test": 2198,
     "n_train": 17418,
     "n_val": 2183
+  },
+  "text_lora": {
+    "backend": "lora",
+    "beats_zero_shot": true,
+    "json_parse_failure_rate": 0.0,
+    "macro_auroc_fold10": 0.8164956858149803,
+    "n_test": 2198,
+    "n_train_fit": 4000,
+    "train_loss_history": [
+      0.04561652112835691,
+      0.03605113422293107
+    ]
+  },
+  "text_stop_line_hit": false,
+  "text_zero_shot": {
+    "backend": "zero_shot",
+    "json_parse_failure_rate": 0.4727024567788899,
+    "macro_auroc_fold10": 0.5225755623089339,
+    "n_test": 2198,
+    "n_train_fit": 4000
+  },
+  "waveform": {
+    "device": "mps",
+    "epochs_run": 11,
+    "fold10_test_macro_auroc": 0.9164747049799683,
+    "fold9_val_macro_auroc": 0.923486085689284,
+    "model": "1D residual CNN (stem + 4 res blocks 64/128/128/256) -> 256d GAP -> 5 logits",
+    "n_test": 2198,
+    "n_train": 17418,
+    "n_val": 2183
   }
 }

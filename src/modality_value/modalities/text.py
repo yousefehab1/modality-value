@@ -167,6 +167,7 @@ class TextModel(ModalityModel):
         num_epochs: int = 2,
         lr: float = 1e-4,
         batch_size: int = 8,
+        micro_batch_size: int = 2,
         max_new_tokens: int = 48,
         gen_batch_size: int = 16,
         seed: int = SEED,
@@ -180,7 +181,16 @@ class TextModel(ModalityModel):
         self.lora_dropout = lora_dropout
         self.num_epochs = num_epochs
         self.lr = lr
+        # `batch_size` is the *effective* batch size the LR/convergence
+        # behavior is tuned for. LoRA training runs it as `micro_batch_size`
+        # micro-batches with gradient accumulation instead -- passing the
+        # full batch_size straight into one forward pass spikes MPS memory
+        # linearly with batch size (measured ~1.85GB/example at seq_len~300
+        # for this vocab size), which OOMs a ~20GB unified-memory ceiling at
+        # batch_size=8. Accumulation keeps the same effective batch size and
+        # gradient statistics at a fraction of the peak memory.
         self.batch_size = batch_size
+        self.micro_batch_size = micro_batch_size
         self.max_new_tokens = max_new_tokens
         self.gen_batch_size = gen_batch_size
         self.seed = seed
@@ -331,8 +341,10 @@ class TextModel(ModalityModel):
 
         ds = ReportDataset(reports, y)
         gen = torch.Generator().manual_seed(self.seed)
+        micro_bs = min(self.micro_batch_size, self.batch_size)
+        accum_steps = max(1, self.batch_size // micro_bs)
         loader = DataLoader(
-            ds, batch_size=self.batch_size, shuffle=True, collate_fn=collate, generator=gen
+            ds, batch_size=micro_bs, shuffle=True, collate_fn=collate, generator=gen
         )
 
         model.train()
@@ -343,20 +355,29 @@ class TextModel(ModalityModel):
         self.train_loss_history_ = []
         for epoch in range(self.num_epochs):
             epoch_losses = []
+            opt.zero_grad()
             for step, (input_ids, attn, labels) in enumerate(loader):
                 input_ids = input_ids.to(device)
                 attn = attn.to(device)
                 labels = labels.to(device)
                 out = model(input_ids=input_ids, attention_mask=attn, labels=labels)
+                # Un-scaled loss for logging; scaled-down before backward so
+                # `accum_steps` micro-batches sum to one effective-batch-size
+                # gradient (same training dynamics as one big batch, at
+                # micro_bs's peak memory instead of batch_size's).
                 loss = out.loss
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
+                (loss / accum_steps).backward()
                 epoch_losses.append(loss.item())
+                if (step + 1) % accum_steps == 0:
+                    opt.step()
+                    opt.zero_grad()
                 if step % 50 == 0:
                     logger.info(
                         "LoRA epoch %d step %d loss %.4f", epoch + 1, step, loss.item()
                     )
+            if (step + 1) % accum_steps != 0:
+                opt.step()
+                opt.zero_grad()
             mean_loss = float(np.mean(epoch_losses))
             self.train_loss_history_.append(mean_loss)
             logger.info("LoRA epoch %d/%d mean loss %.4f", epoch + 1, self.num_epochs, mean_loss)
