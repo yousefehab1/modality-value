@@ -17,7 +17,7 @@ text:
 	PYTHONPATH=src $(VENV)/python -m modality_value.modalities.text
 
 fusion:
-	$(VENV)/python -m modality_value.fusion.value
+	PYTHONPATH=src OMP_NUM_THREADS=1 KMP_DUPLICATE_LIB_OK=TRUE $(VENV)/python -m modality_value.fusion.value
 
 molecular:
 	$(VENV)/python -m modality_value.modalities.molecular
