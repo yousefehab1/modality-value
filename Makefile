@@ -23,7 +23,7 @@ molecular:
 	$(VENV)/python -m modality_value.modalities.molecular
 
 serve:
-	$(VENV)/uvicorn service.app:app --host 0.0.0.0 --port 8080
+	PYTHONPATH=src OMP_NUM_THREADS=1 KMP_DUPLICATE_LIB_OK=TRUE $(VENV)/uvicorn service.app:app --host 0.0.0.0 --port 8080
 
 test:
 	$(VENV)/pytest -v
