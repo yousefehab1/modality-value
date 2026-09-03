@@ -1,35 +1,17 @@
 """Text arm: PTB-XL free-text ECG report -> structured superclass probabilities.
 
-PTB-XL reports are predominantly **German**, with device-generated template
-interpretations mixed in among cardiologist-written prose (verified by
-sampling `load_metadata()["report"]` before writing this module -- see the
-`--inspect` entrypoint below). This is why the base model must have genuine
-multilingual coverage, not just English instruction-following, and why we
-do not attempt any English-only prompt engineering trick.
+PTB-XL reports are predominantly German, mixing device-generated template
+interpretations with cardiologist-written prose, so the base model needs
+genuine multilingual coverage rather than an English-only prompting trick.
 
-Backends (selectable via `backend=`), all behind the *same* class so the
-arm stays registered under one name regardless of which one ends up used:
-
-  - "lora":      Qwen2.5-0.5B-Instruct + a LoRA adapter fine-tuned to emit
-                 strict JSON with the five superclass booleans, trained on
-                 SCP-derived superclass labels from the train folds.
-  - "zero_shot": the same base model and prompt, no adapter at all -- the
-                 required un-tuned baseline. Fine-tuning is only worth
-                 claiming if "lora" beats "zero_shot"; if it doesn't, that
-                 is reported honestly, not hidden.
-  - "tfidf":     stop-line fallback (TF-IDF + one-vs-rest LogisticRegression
-                 over the raw report text) used only if LoRA does not
-                 converge after a few honest attempts at sane hyperparameters.
-
-`score()` parses the generated JSON into 5 probabilities. On a parse
-failure it falls back to the *training-set class prior* (computed once in
-`fit()`) rather than a fixed 0.5 -- and the failure is counted into
-`last_parse_failure_rate_`, a deployment-honesty number this module always
-reports rather than averaging away.
+Three backends behind the same class (selectable via `backend=`): "lora"
+(Qwen2.5-0.5B-Instruct + a LoRA adapter fine-tuned to emit strict JSON with
+the five superclass booleans), "zero_shot" (same base model and prompt, no
+adapter, the required un-tuned baseline), and "tfidf" (TF-IDF + one-vs-rest
+LogisticRegression, a fallback used only if LoRA fails to converge).
 
 `embed()` returns the mean-pooled last-hidden-state of the report from the
-*base* model (no LoRA, no generation) -- an encoder-style pooling pass over
-the causal LM's hidden states, masked by the attention mask.
+base model (no LoRA, no generation).
 """
 from __future__ import annotations
 
@@ -43,7 +25,7 @@ import numpy as np
 
 from modality_value.config import MODALITY_COSTS, SEED, SUPERCLASSES
 from modality_value.modalities import register
-from modality_value.modalities.base import ModalityModel
+from modality_value.modalities.base import ModalityModel, get_device
 
 logger = logging.getLogger(__name__)
 
@@ -206,13 +188,6 @@ class TextModel(ModalityModel):
         self._tfidf = None  # (TfidfVectorizer, OneVsRestClassifier)
 
     # ---- device / model loading -----------------------------------------
-    def _device(self):
-        import torch
-
-        if torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-
     def _ensure_base_loaded(self):
         if self._base_model is not None:
             return
@@ -226,7 +201,7 @@ class TextModel(ModalityModel):
         model = AutoModelForCausalLM.from_pretrained(
             self.base_model_name, torch_dtype=torch.bfloat16
         )
-        model.to(self._device())
+        model.to(get_device())
         model.eval()
         self._base_model = model
 
@@ -301,7 +276,7 @@ class TextModel(ModalityModel):
         self._ensure_lora_attached()
         tok = self._tokenizer
         model = self._peft_model
-        device = self._device()
+        device = get_device()
 
         class ReportDataset(Dataset):
             def __init__(self, reports, y):
@@ -393,7 +368,7 @@ class TextModel(ModalityModel):
         self._ensure_base_loaded()
         tok = self._tokenizer
         model = self._base_model
-        device = self._device()
+        device = get_device()
 
         old_padding_side = tok.padding_side
         tok.padding_side = "right"  # mean-pool with a mask, side doesn't matter, but be explicit
@@ -439,7 +414,7 @@ class TextModel(ModalityModel):
             self._ensure_base_loaded()
             model = self._base_model
         tok = self._tokenizer
-        device = self._device()
+        device = get_device()
         model.eval()
 
         old_padding_side = tok.padding_side
@@ -562,35 +537,12 @@ def _inspect_reports(df, n: int = 20) -> None:
     print()
 
 
-def _merge_json_with_retries(path: Path, new_keys: dict, retries: int = 5) -> bool:
-    """Read-merge-write into a shared results JSON file. Returns True on success."""
-    import time
-
-    for attempt in range(retries):
-        try:
-            if path.exists():
-                with open(path) as f:
-                    existing = json.load(f)
-            else:
-                existing = {}
-            existing.update(new_keys)
-            tmp = path.with_suffix(path.suffix + f".tmp{attempt}")
-            with open(tmp, "w") as f:
-                json.dump(existing, f, indent=2, sort_keys=True)
-            tmp.replace(path)
-            return True
-        except (json.JSONDecodeError, OSError):
-            time.sleep(0.5 + attempt)
-            continue
-    return False
-
-
 def main() -> None:
     import argparse
     import time
 
-    from modality_value.config import RESULTS_DIR
     from modality_value.eval.metrics import macro_auroc
+    from modality_value.eval.report import PHASE1_METRICS_PATH, merge_json_atomic
     from modality_value.io.ptbxl import labels_matrix, load_metadata, split_indices
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -718,18 +670,9 @@ def main() -> None:
     if stop_line_hit:
         metrics["text_stop_line_reason"] = stop_line_reason
 
-    # ---- write results: merge into phase1_metrics.json, else our own file ----
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    phase1_path = RESULTS_DIR / "phase1_metrics.json"
-    merged = _merge_json_with_retries(phase1_path, metrics, retries=5)
-    if merged:
-        print(f"\nMerged text-arm metrics into {phase1_path}")
-    else:
-        fallback_path = RESULTS_DIR / "phase2_text_metrics.json"
-        with open(fallback_path, "w") as f:
-            json.dump(metrics, f, indent=2, sort_keys=True)
-        print(f"\nCould not safely merge into {phase1_path} after {5} retries "
-              f"(concurrent writer?); wrote standalone {fallback_path} instead.")
+    # ---- write results: merge into phase1_metrics.json ----
+    merge_json_atomic(PHASE1_METRICS_PATH, metrics)
+    print(f"\nMerged text-arm metrics into {PHASE1_METRICS_PATH}")
 
 
 def pd_index_subsample(idx, n, rng):

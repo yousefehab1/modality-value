@@ -1,18 +1,12 @@
 """Shared metrics contract used by every modality and by fusion/value.py.
 
-Written once, in Phase 0, so that Phase 1/2/3/4 (built independently, some
-in parallel) agree on the same definitions instead of each re-deriving
-macro AUROC or bootstrap CIs slightly differently.
-
-The key design decision: fusion/value.py must run identically for the
-PTB-XL arm (metric = macro AUROC, targets = a multi-hot label matrix) and
-the TCGA arm (metric = C-index, targets = (time, event) pairs). Those two
-target shapes are incompatible as plain arrays, so every metric here takes
-a `y_ref: dict[str, np.ndarray]` -- an opaque, task-specific bundle of
-targets -- rather than a positional array. This is what lets
-fusion/value.py take the metric as a parameter instead of hardcoding
-AUROC. Do not add a second calling convention; wrap new metrics the same
-way (see `macro_auroc_metric` / `c_index_metric` below).
+fusion/value.py must run identically for the PTB-XL arm (metric = macro
+AUROC, targets = a multi-hot label matrix) and the TCGA arm (metric =
+C-index, targets = (time, event) pairs). Those two target shapes are
+incompatible as plain arrays, so every metric here takes a
+`y_ref: dict[str, np.ndarray]`, an opaque, task-specific bundle of targets,
+rather than a positional array. Do not add a second calling convention;
+wrap new metrics the same way (see `macro_auroc_metric` / `c_index_metric`).
 """
 from __future__ import annotations
 

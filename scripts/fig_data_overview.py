@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 """Generate results/fig_data_overview.png: label prevalence, age/sex
 distribution, and report-length histogram, straight off ptbxl_database.csv.
-
-Phase 0 acceptance also lives here in spirit (though the actual --summary
-assertion is in io/ptbxl.py): this script is the "one figure of data shape"
-requirement, wired to `make data`.
+Wired to `make data`.
 """
 from __future__ import annotations
 
@@ -12,7 +9,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 
 from modality_value.config import RESULTS_DIR, SUPERCLASSES
 from modality_value.io.ptbxl import load_metadata
