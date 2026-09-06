@@ -11,3 +11,4 @@ __pycache__/
 *.egg-info/
 .env
 notebooks/.ipynb_checkpoints/
+service/artifacts/

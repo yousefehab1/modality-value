@@ -123,30 +123,28 @@ make serve       # local demo on :8080
 
 ## Deployment
 
-`service/app.py` is a real FastAPI app: on startup it fits `TabularModel` + `WaveformModel` on the PTB-XL train fold and a stacking `fuse_fn` on the val fold (same code path as `fusion/value.py`'s PTB-XL arm), then serves `GET /health`, `GET /patients` (sample held-out test-fold ids), and `GET /score/{ecg_id}` (fused + per-modality risk scores, plus the true label, for that test-fold patient).
+`service/app.py` is a real FastAPI app. On startup it loads persisted artifacts from `service/artifacts/` (a fitted `TabularModel` + `WaveformModel` and the small score arrays their stacking `fuse_fn` needs; see `scripts/export_service_artifacts.py`) if present, falling back to fitting both on the PTB-XL train fold and the val fold from scratch (same code path as `fusion/value.py`'s PTB-XL arm) if not. Either way it serves `GET /health`, `GET /patients` (sample held-out test-fold ids), and `GET /score/{ecg_id}` (fused + per-modality risk scores, plus the true label, for that test-fold patient).
 
 Locally:
 
 ```bash
-make serve   # fits on startup (~30-60s), then serves on :8080
+make serve   # loads from service/artifacts/ if present (~instant), else fits from scratch (~30-60s)
 curl localhost:8080/patients
 curl localhost:8080/score/<ecg_id from the list above>
 ```
 
-Containerized, for Cloud Run:
+Containerized:
 
 ```bash
+python scripts/export_service_artifacts.py   # writes service/artifacts/ (~56MB), run once locally where PTB-XL is cached
 docker build -t modality-value-service -f service/Dockerfile .
-docker run -p 8080:8080 -v "$(pwd)/data:/app/data" modality-value-service   # local sanity check first
-
-gcloud run deploy modality-value-service \
-  --source . \
-  --region <your-region> \
-  --allow-unauthenticated \
-  --memory 4Gi
+docker run -p 7860:7860 modality-value-service
+curl localhost:7860/patients
 ```
 
-`--source .` builds `service/Dockerfile` via Cloud Build. PTB-XL isn't baked into the image (see the Dockerfile's header comment); a real deploy needs the dataset reachable at `/app/data` inside the container, e.g. a GCS FUSE volume mount or an init step that runs `make data`, neither of which is wired up here. This command has not been run against a live GCP project as part of this repo; it's documented, not executed, since that requires the deployer's own GCP credentials and billing.
+The image bakes in `service/artifacts/` (see the Dockerfile's header comment), so the container is self-contained: no PTB-XL volume mount, no GCS FUSE, no init step needed at deploy time.
+
+<!-- DEPLOYMENT_STATUS_PLACEHOLDER -->
 
 ## What was cut
 
@@ -154,12 +152,12 @@ gcloud run deploy modality-value-service \
 - **Text arm trains on a 4,000-example subsample**, not the full 17,418-record train fold, purely for LoRA compute budget on a single Apple Silicon machine. Every PTB-XL number above that includes text should be read as a lower bound on what more training data could buy.
 - **No true joint multimodal cohort.** PTB-XL and TCGA are separate cohorts sharing an interface, not the same patients with an added modality; stated up front rather than glossed over.
 - **TCGA uses a plain 5-fold `KFold`**, not a published stratified split, because none exists for this cohort (unlike PTB-XL's `strat_fold`), the honest option given in `modalities/molecular.py::compute_oof_scores`.
-- **No model persistence layer.** Every `make <target>` and the service both refit from scratch; nothing is pickled/checkpointed to disk. Fine for a research prototype at this scale, but the first thing a real deployment would need (see Next steps).
+- **`make <target>` refits from scratch every time**; only `service/app.py` has a persistence layer (`scripts/export_service_artifacts.py` writes fitted models + small val/test-fold derivatives to `service/artifacts/`, which the service loads directly instead of refitting on every restart). That split is deliberate: the offline pipeline should stay a straightforward re-run of the whole thing, while the service needs to boot fast without the full dataset present.
 - **No auth, rate limiting, or PHI handling** in `service/app.py`: it returns ecg_ids and labels straight from a public research dataset for demo purposes; treat it as a local/portfolio demo, not a template for handling real patient data.
 
 ## Next steps
 
-1. **Persist trained models** (tabular: `joblib`; waveform: `torch.save` state dict; text: `peft`'s `save_pretrained`/`from_pretrained` for the LoRA adapter) so the service loads instantly instead of refitting, and so text can be added back to the live demo without a 30-minute cold start.
+1. **Extend model persistence to the text arm** (`peft`'s `save_pretrained`/`from_pretrained` for the LoRA adapter): tabular and waveform are already persisted (`scripts/export_service_artifacts.py`), so this is the remaining piece needed to add text back to the live demo without a 30-minute cold start.
 2. **Accept raw input** at `/score` (tabular fields + a 12-lead signal array) instead of only looking up existing test-fold `ecg_id`s, so the demo can score a genuinely new record.
 3. **Wire up `make data` (or a GCS FUSE mount) into the Cloud Run deploy** so the container has PTB-XL available without a manual volume mount, and actually run `gcloud run deploy` against a real project to confirm the documented command above works end to end.
 4. **Re-run the TCGA value table at a larger n** (or with a second molecular signature panel): the molecular Δ's 95% CI currently straddles zero (see "Reading this honestly" under Cohort 2 results), not yet a confident answer to whether the £300/patient panel is worth it.
