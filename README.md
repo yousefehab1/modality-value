@@ -142,9 +142,7 @@ docker run -p 7860:7860 modality-value-service
 curl localhost:7860/patients
 ```
 
-The image bakes in `service/artifacts/` (see the Dockerfile's header comment), so the container is self-contained: no PTB-XL volume mount, no GCS FUSE, no init step needed at deploy time.
-
-<!-- DEPLOYMENT_STATUS_PLACEHOLDER -->
+The image bakes in `service/artifacts/` (see the Dockerfile's header comment), so the container is self-contained: no PTB-XL volume mount, no GCS FUSE, no init step needed at deploy time. This was built and verified locally end to end (both the artifacts-loading startup path and the container build); it is containerised, with deployment configuration included, and not deployed to a live public host as part of this repo. Both realistic targets require payment on signup: Cloud Run needs a GCP billing account with a card, and Hugging Face Spaces now requires a PRO subscription to run a Docker Space (its free tier covers static/Gradio Spaces only, not Docker), which reverses what was true when this project was scoped. Standing up a live URL from here is one `gcloud run deploy` or Space push away for whoever holds that billing relationship; deliberately not done here rather than deployed and then quietly torn down to dodge ongoing cost.
 
 ## What was cut
 
