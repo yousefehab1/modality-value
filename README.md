@@ -62,11 +62,19 @@ Leave-one-modality-out marginal gains (all three modalities included = macro AUR
 | text | 0.908 | -0.0370 | [-0.0433, -0.0309] |
 
 **Reading this honestly:**
-- Free-text cardiologist reports carry most of the diagnostic signal here: adding text to tabular demographics is a huge, clearly significant jump (+0.218 AUROC), because the reports frequently paraphrase the diagnosis itself.
-- The waveform CNN then adds a further significant gain on top (+0.051), at a higher acquisition cost (£25) than text (£15), so text is the better marginal buy of the two by a wide margin (1.45 vs. 0.20 AUROC per £100).
+- Free-text cardiologist reports carry most of the diagnostic signal here: adding text to tabular demographics is a huge, clearly significant jump (+0.218 AUROC), because the reports frequently paraphrase the diagnosis itself. See "Label provenance" below for why this number is optimistic.
+- The waveform CNN then adds a further significant gain on top (+0.051). On the raw cost-per-100 numbers text looks like the better marginal buy (1.45 vs. 0.20 AUROC per £100), but see "Label provenance": the honest buying order puts waveform first, not text.
 - The leave-one-out table shows an asymmetry worth flagging: **the cost-ordered buying sequence and the "what hurts most to lose" ranking disagree.** Tabular is bought first because it's cheapest, but once text and waveform are present it is nearly redundant (dropping it costs 0.001 AUROC); waveform, added last, turns out to be the single modality most costly to remove from the full set (-0.051), ahead of text (-0.037).
 - A "what could I stop paying for" query and a "what should I buy next" query are genuinely different questions with different answers here.
 - Every number above that involves text carries the 4,000-example training-subsample caveat; see "What was cut".
+
+### Label provenance: why the text-arm gain is optimistic, and the honest buying order
+
+PTB-XL's SCP-ECG diagnostic labels were derived in part from the same cardiologist reports the text arm reads: the free-text report frequently states or paraphrases the diagnosis directly. So `tabular+text`'s +0.218 AUROC jump is partly the text arm reading a restatement of the label, not an independent signal extracted from the ECG. This does not make the number fake (the reports are real, and reading an existing report is a real product), but it means the £-per-100 ranking above overstates text's case.
+
+The honest first buy is waveform, not text. Waveform reaches 0.916 macro AUROC on its own (see `results/phase1_metrics.json`), a genuine signal read directly from the raw ECG with no dependence on report text, and it is also the single modality most costly to remove from the full fused model (-0.051, the largest drop in the leave-one-out table above). Text remains useful as a cheap way to reuse a report that already exists, but its apparent cost-efficiency should be read with this caveat, not taken at face value. A clean settling of this would strip diagnosis-adjacent terms from the report text and re-score; that ablation has not been run here, this is a flagged caveat, not a corrected number.
+
+By contrast, the TCGA molecular result (Cohort 2, below) needs no such caveat and is arguably the most commercially interesting number in this repo, precisely because it is small: clinical 0.702 to clinical+molecular 0.711 is a gain of only +0.009, with a 95% CI that includes zero. An expensive modality (£300/patient) that adds almost nothing on top of cheap covariates is exactly the finding a cost-value framework like this one exists to catch, not a weaker result to explain away.
 
 ## Cohort 2 results: TCGA (molecular / survival)
 
@@ -97,7 +105,7 @@ All cost figures are estimates unless stated otherwise; see `src/modality_value/
 
 ## Data
 
-- **PTB-XL**: PhysioNet, [CC BY 4.0](https://physionet.org/content/ptb-xl/1.0.3/), open access, no credentialing required. 21,799 records / 18,869 patients. Citation: Wagner et al., "PTB-XL, a large publicly available electrocardiography dataset," Scientific Data, 2020.
+- **PTB-XL**: PhysioNet, [Creative Commons Attribution 4.0 (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), [dataset page](https://physionet.org/content/ptb-xl/1.0.3/), open access, no credentialing required. 21,799 records / 18,869 patients. The raw dataset itself is not redistributed in this repo (gitignored, downloaded fresh by `make data`). Citation: Wagner, P., Strodthoff, N., Bousseljot, R.-D., Kreiseler, D., Lunze, F.I., Samek, W., Schaeffter, T. (2020). "PTB-XL: A Large Publicly Available ECG Dataset." Scientific Data. https://doi.org/10.1038/s41597-020-0495-6
 - **TCGA**: molecular scores exported once from the existing thesis R pipeline (`core/scoring.R`, `core/signatures.R`, `modules/crc_survival.R`, `core/clinical.R`) into `data/tcga/molecular_scores.csv`. No thesis code was modified.
 
 ## Reproducing
