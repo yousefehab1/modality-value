@@ -5,11 +5,9 @@ age/sex populated). We median-impute them AND keep a per-column missingness
 indicator, since missingness itself is informative here (it correlates with
 which site/era a record came from) and costs nothing to compute.
 
-Design note: rather than one multi-output model, we fit 5 independent
-LGBMClassifier one-vs-rest binary models (one per SUPERCLASS). LightGBM's
-native multi-output support is limited/awkward for probabilistic multi-label
-output, and 5 independent models keep each class trivially inspectable and
-map directly onto the "score() returns 5 one-vs-rest probabilities" spec.
+We fit 5 independent one-vs-rest LGBMClassifiers (one per SUPERCLASS) rather
+than one multi-output model, since LightGBM's native multi-output support is
+awkward for probabilistic multi-label output.
 """
 from __future__ import annotations
 

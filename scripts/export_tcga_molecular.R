@@ -1,57 +1,22 @@
 # ==============================================================================
 # scripts/export_tcga_molecular.R
 #
-# Phase 4 (molecular arm) read-only export from the existing thesis R
-# pipeline (~/Master's Work/Thesis). This script does NOT modify or commit
-# anything in the thesis repo -- it only source()s its core/*.R files by
-# absolute path and reuses their functions to write one flat CSV here:
+# Read-only export from the existing thesis R pipeline (~/Master's
+# Work/Thesis): sources its core/*.R files by absolute path and reuses their
+# functions to write one flat CSV here:
 #
 #   data/tcga/molecular_scores.csv
 #   columns: sample_id, <signature>_ssGSEA (one per gene set in Data/ML.csv),
 #            age, sex, stage, os_time, os_event
 #
-# Design decisions, and why:
+# Cohort is TCGA-COAD only, using clinical covariates from the TCGA Clinical
+# Data Resource (Liu et al. 2018) and ssGSEA scores over the full signature
+# panel in Data/ML.csv -- both read-only from the thesis repo, never edited.
+# The TPM matrix and colData must already be cached on disk from a previous
+# thesis run; this script refuses to trigger a fresh GDCdownload() (TCGA-COAD
+# RNA-seq is several GB) and stops with a clear error if the cache is missing.
 #
-# - Cohort: TCGA-COAD only (the "TCGA half" of modules/crc_survival.R),
-#   not GSE39582. GSE39582 is a microarray cohort with no obvious analogue
-#   to a "second held-out cohort" for this exercise, and only one cohort is
-#   needed to prove fusion/value.py is metric-agnostic across a second
-#   modality-agnostic ModalityModel. Pulling in GSE39582 would also require
-#   downloading it from GEO, which this script avoids (see below).
-#
-# - No fresh downloads: TCGA-COAD's STAR TPM matrix and colData are already
-#   cached on disk from a previous thesis run
-#   (Thesis/cache/TCGA_COAD_tpm_ensembl.rds, TCGA_COAD_coldata.rds). This
-#   script reads them via the thesis's own cache_rds() helper, which returns
-#   the cached object and *never* re-executes the GDCquery/GDCdownload
-#   fallback closure when the cache file is already present. If those cache
-#   files are ever missing, this script will refuse to fetch fresh data and
-#   will stop with a clear error instead (see the guard below) --
-#   TCGA-COAD RNA-seq is several GB and this machine has very limited free
-#   disk space right now.
-#
-# - Clinical covariates (age, sex, stage, os_time, os_event) come from the
-#   TCGA Clinical Data Resource (Liu et al. 2018), already present locally
-#   at Thesis/Data/TCGA-CDR.csv, via the thesis's own load_tcga_cdr(). This
-#   script does NOT call TCGAbiolinks::GDCquery_clinic() (used in
-#   modules/crc_survival.R only for CRC-specific treatment status, which is
-#   not part of the required CSV schema here) -- avoiding that network call
-#   entirely.
-#
-# - Endpoint: overall survival (OS), not the module's PFI-based recurrence
-#   endpoint -- os_time/os_event is the schema io/tcga.py expects, and OS is
-#   the least-processed, most standard endpoint (event = death, no landmark
-#   truncation). Time is reported in MONTHS (OS.time days / DAYS_PER_MONTH),
-#   matching the thesis's own convention in core/clinical.R. This is a
-#   monotonic rescaling of days and does not change concordance (C-index).
-#
-# - Signature scores: ssGSEA over the whole signature panel in Data/ML.csv
-#   (mirroring main.R's default CRC_SIGNATURES = NULL, i.e. every column),
-#   via the thesis's own run_ssgsea() + add_composite(), so the score-naming
-#   convention ("<Signature>_ssGSEA") matches the rest of the thesis exactly.
-#   The signature file itself (Data/ML.csv) is read only, never edited.
-#
-# Run from anywhere:
+# Run from the modality-value repo root:
 #   Rscript scripts/export_tcga_molecular.R
 # ==============================================================================
 
@@ -60,12 +25,11 @@ suppressPackageStartupMessages({
 })
 
 THESIS_ROOT <- "/Users/elabd/Master's Work/Thesis"
-# Absolute path to this agent's modality-value worktree (this script is run
-# via `Rscript scripts/export_tcga_molecular.R` from there, or via `make`).
-MODALITY_VALUE_ROOT <- "/Users/elabd/Master's Work/modality-value/.claude/worktrees/agent-a0362a5d109a6575b"
+MODALITY_VALUE_ROOT <- getwd()
 OUT_CSV <- file.path(MODALITY_VALUE_ROOT, "data", "tcga", "molecular_scores.csv")
 
 stopifnot(dir.exists(THESIS_ROOT))
+stopifnot(file.exists(file.path(MODALITY_VALUE_ROOT, "pyproject.toml")))
 
 # We need cache_rds()'s relative "cache/..." lookups and CDR_FILE = "Data/..."
 # to resolve inside the thesis repo, so operate with it as the working
@@ -83,7 +47,7 @@ source(file.path(THESIS_ROOT, "core", "expression.R"))
 source(file.path(THESIS_ROOT, "core", "scoring.R"))
 source(file.path(THESIS_ROOT, "core", "clinical.R"))
 
-message("== Phase 4 export: TCGA-COAD molecular scores ==")
+message("== Exporting TCGA-COAD molecular scores ==")
 
 # ---- 1. Load the already-cached TCGA-COAD TPM matrix + colData -------------
 tpm_cache_key <- paste0("TCGA_COAD_tpm_", ID_TYPE)

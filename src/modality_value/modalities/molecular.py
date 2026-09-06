@@ -6,28 +6,19 @@ this repo here wraps `lifelines.CoxPHFitter` over TCGA-COAD gene-set (ssGSEA)
 scores and clinical covariates, scored by Harrell's C-index instead of AUROC.
 
 Two registered modalities, mirroring `config.MODALITY_COSTS["clinical"]` and
-`["molecular"]` so `fusion/value.py`'s incremental order
-`["clinical", "molecular"]` has one ModalityModel per cost row:
+`["molecular"]`:
 
 - `ClinicalCoxModality` ("clinical"): age, sex, tumour stage.
 - `MolecularCoxModality` ("molecular"): ssGSEA signature scores exported by
   `scripts/export_tcga_molecular.R` (see `io/tcga.py`).
 
-`y` convention (documented once, used by both classes):
-    y is an (n, 2) float ndarray, y[:, 0] = event_time, y[:, 1] = event
-    (1 = event/death observed, 0 = censored). This mirrors the `YRef`
-    {"time", "event"} convention in eval/metrics.py without forcing a dict
-    through the positional `fit(X, y)` signature every other ModalityModel
-    uses.
-
-`score()` returns the linear predictor / log partial hazard as an (n, 1)
-array -- higher means higher risk, matching `eval.metrics.c_index_metric`'s
-expected convention directly (lifelines' `predict_log_partial_hazard` already
-follows it, no sign flip needed).
-
-`embed()` returns the standardized (z-scored) design matrix actually handed
-to the Cox model, as an (n, d) array -- the "latent representation" for a
-linear model is just its own (standardized) inputs.
+`y` is an (n, 2) float ndarray: `y[:, 0]` = event_time, `y[:, 1]` = event
+(1 = event/death observed, 0 = censored) -- the positional equivalent of
+eval/metrics.py's `YRef` `{"time", "event"}` convention, kept positional here
+so it still fits the `fit(X, y)` signature every other ModalityModel uses.
+`score()` returns the log partial hazard as an (n, 1) array (higher = higher
+risk, matching `c_index_metric`'s convention directly). `embed()` returns the
+standardized design matrix handed to the Cox model.
 """
 from __future__ import annotations
 
@@ -38,6 +29,7 @@ import pandas as pd
 from lifelines import CoxPHFitter
 
 from modality_value.config import MODALITY_COSTS
+from modality_value.fusion.value import FuseFn, make_stacking_fuse_fn
 from modality_value.modalities import register
 from modality_value.modalities.base import ModalityModel
 
@@ -199,18 +191,13 @@ def compute_oof_scores(df: pd.DataFrame, seed: int = 42, n_splits: int = 5) -> d
     return oof
 
 
-def make_fuse_fn(y_ref: dict[str, np.ndarray]):
+def make_fuse_fn(y_ref: dict[str, np.ndarray]) -> FuseFn:
     """Late-fusion for survival: refit a small second-stage CoxPHFitter using
     the concatenated per-modality OOF risk scores as covariates -- the
     survival analogue of the classification arm's late-fusion logistic
-    regression. With a single modality, fusion is the identity (nothing to
-    combine).
-    """
+    regression."""
 
-    def fuse(scores: dict[str, np.ndarray]) -> np.ndarray:
-        if len(scores) == 1:
-            return next(iter(scores.values()))
-        names = sorted(scores)
+    def fit_and_predict(names: list[str], scores: dict[str, np.ndarray]) -> np.ndarray:
         df = pd.DataFrame({name: scores[name].reshape(-1) for name in names})
         df["time"] = y_ref["time"]
         df["event"] = y_ref["event"]
@@ -219,7 +206,7 @@ def make_fuse_fn(y_ref: dict[str, np.ndarray]):
         risk = cph.predict_log_partial_hazard(df[names]).to_numpy(dtype=float)
         return risk.reshape(-1, 1)
 
-    return fuse
+    return make_stacking_fuse_fn(fit_and_predict)
 
 
 def main() -> None:
@@ -227,6 +214,7 @@ def main() -> None:
 
     from modality_value.config import MODALITY_COSTS, RESULTS_DIR, SEED, TCGA_MOLECULAR_SCORES_CSV
     from modality_value.eval.metrics import c_index_metric
+    from modality_value.eval.report import plot_value_table
     from modality_value.fusion.value import compute_leave_one_out_table, compute_value_table
     from modality_value.io.tcga import load_molecular_scores
 
@@ -282,45 +270,12 @@ def main() -> None:
     print(f"\nWrote {value_csv}")
     print(f"Wrote {loo_csv}")
 
-    _plot_value(value_table, RESULTS_DIR / "fig_molecular_value.png")
-
-
-def _plot_value(value_table, out_path) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(6, 4.5))
-    x = value_table["acquisition_cost_gbp"].to_numpy(dtype=float)
-    y = value_table["delta_vs_previous"].to_numpy(dtype=float)
-    lo = value_table["ci_low"].to_numpy(dtype=float)
-    hi = value_table["ci_high"].to_numpy(dtype=float)
-    is_baseline = value_table["ci_low"].isna().to_numpy()  # first row: no "previous" to gain over
-
-    # Baseline row's "delta" is its own absolute metric (nothing preceded it),
-    # not a marginal gain -- plot it distinctly (grey, no CI) so it isn't read
-    # as a gain on the same footing as the incremental points.
-    if is_baseline.any():
-        ax.scatter(x[is_baseline], y[is_baseline], color="#a0aec0", s=90, zorder=2,
-                   label="baseline (absolute C-index)")
-    if (~is_baseline).any():
-        xi, yi = x[~is_baseline], y[~is_baseline]
-        yerr = np.vstack([yi - lo[~is_baseline], hi[~is_baseline] - yi])
-        ax.errorbar(xi, yi, yerr=yerr, fmt="o", capsize=4, color="#2b6cb0", ecolor="#718096",
-                    markersize=9, zorder=3, label="Δ vs. previous step (95% CI)")
-
-    for xi, yi, label in zip(x, y, value_table["modality_set"]):
-        ax.annotate(label, (xi, yi), textcoords="offset points", xytext=(8, 6), fontsize=9)
-    ax.axhline(0, color="#a0aec0", linewidth=0.8, linestyle="--")
-    ax.set_xlabel("Acquisition cost of added modality (£/patient)")
-    ax.set_ylabel("C-index (baseline)  /  Δ C-index (increments)")
-    ax.set_title("TCGA molecular arm: discrimination gain per £ spent")
-    ax.legend(loc="center right", fontsize=8, frameon=False)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"Wrote {out_path}")
+    plot_value_table(
+        value_table,
+        RESULTS_DIR / "fig_molecular_value.png",
+        metric_label="C-index",
+        title="TCGA molecular arm: discrimination gain per £ spent",
+    )
 
 
 if __name__ == "__main__":

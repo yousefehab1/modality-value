@@ -1,21 +1,12 @@
 """1D residual CNN over the 12-lead x 1000-sample (10s @ 100Hz) ECG waveform.
 
-Normalization: per-lead z-score, with mean/std computed on TRAINING rows only
-and then applied identically to every record (train/val/test/inference).
-This is the leakage trap named in the build plan: computing those stats over
-val/test rows (even by accident, e.g. by normalizing before splitting) would
-let test-set amplitude/offset statistics leak into every model input.
+Normalization is per-lead z-score, with mean/std computed on TRAINING rows
+only and then applied identically to every record (train/val/test/inference)
+-- this is the leakage trap to avoid: computing those stats over val/test
+rows would let test-set amplitude/offset statistics leak into model input.
 
-Architecture (as specified in the build plan): stem conv (kernel 7, 64ch,
-stride 2) -> 4 residual blocks (64/128/128/256 channels, stride 2 each) ->
-global average pool -> dropout -> linear to 5 logits. BCEWithLogitsLoss,
-AdamW, cosine LR schedule, batch 64, <=30 epochs, early stop on fold-9 macro
-AUROC.
-
-embed() returns the pre-logit 256-d pooled vector (post GAP, pre-dropout,
-pre-fc) -- this is the "latent representation" the ModalityModel interface
-promises, and what a downstream fusion layer could use instead of / in
-addition to the 5-way score.
+`embed()` returns the pre-logit 256-d pooled vector (post GAP, pre-dropout,
+pre-fc): the "latent representation" the ModalityModel interface promises.
 """
 from __future__ import annotations
 
@@ -31,15 +22,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from modality_value.config import MODALITY_COSTS, NUM_LEADS, SEED, SIGNAL_LENGTH, SUPERCLASSES
+from modality_value.config import MODALITY_COSTS, NUM_LEADS, SEED, SUPERCLASSES
 from modality_value.modalities import register
-from modality_value.modalities.base import ModalityModel
-
-
-def get_device() -> torch.device:
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
+from modality_value.modalities.base import ModalityModel, get_device
 
 
 @dataclass
