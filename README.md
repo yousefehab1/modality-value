@@ -1,6 +1,6 @@
 # modality-value
 
-> A deployed multimodal risk engine that quantifies what each additional data modality is worth, in discrimination gain per unit of acquisition cost.
+> A containerised multimodal risk engine that quantifies what each additional data modality is worth, in discrimination gain per unit of acquisition cost.
 
 Every additional data source a health system buys (an ECG, a free-text report, a genomic panel) has both a discrimination gain and an acquisition cost. This prototype builds a modality-agnostic risk engine, spanning waveform, text, tabular, and molecular data, and asks: what is each modality actually worth, in AUROC (or C-index) gained per £100 spent? Both directions matter commercially: **what should I buy next**, and **what could I stop paying for**.
 
