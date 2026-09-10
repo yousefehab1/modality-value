@@ -2,6 +2,8 @@
 name = "modality-value"
 version = "0.1.0"
 description = "Quantifying discrimination gain per unit of acquisition cost across clinical data modalities"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "torch>=2.4",
